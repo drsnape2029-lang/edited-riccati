@@ -1,0 +1,386 @@
+"""
+Core module for solving the Riccati ODE:
+    y'(x) = a*y(x)^2 + 1/a,  a != 0
+
+Exact solution:
+    y(x) = (1/a) * tan(x)
+
+Exact derivative (useful for error tables):
+    y'(x) = (1/a) * sec^2(x)
+
+Domain avoids singularity at x = pi/2:
+    [0, left_frac*pi/2] U [right_frac*pi/2, x_domain_max]
+
+Requested:
+    left_frac = 0.99
+    right_frac = 1.01
+    x_domain_max = pi
+"""
+
+import math
+import numpy as np
+from typing import Tuple
+
+# ---------- Requested defaults (99% / 101%) ----------
+DEFAULT_LEFT_FRAC = 0.99
+DEFAULT_RIGHT_FRAC = 1.01
+DEFAULT_X_DOMAIN_MAX = math.pi
+
+
+def f_riccati(x: float, y: float, a: float) -> float:
+    """Right-hand side f(x,y) = a*y^2 + 1/a."""
+    return a * y**2 + 1.0 / a
+
+
+def y_exact(x: np.ndarray, a: float) -> np.ndarray:
+    """Exact solution y(x) = (1/a) * tan(x)."""
+    return (1.0 / a) * np.tan(x)
+
+
+def yprime_exact(x: np.ndarray, a: float) -> np.ndarray:
+    """
+    Exact derivative y'(x) = (1/a) * sec^2(x) = (1/a) / cos^2(x)
+    Note: Domain excludes x = pi/2 singularity.
+    """
+    return (1.0 / a) * (1.0 / (np.cos(x) ** 2))
+
+
+def yprime_from_y(y: np.ndarray, a: float) -> np.ndarray:
+    """Compute y'(x) from y(x) using the ODE: y' = a*y^2 + 1/a."""
+    return a * (y ** 2) + 1.0 / a
+
+
+# ===================== Euler =====================
+
+def euler_forward(a: float, x0: float, x1: float, y0: float, h: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Explicit Euler forward from x0 to x1."""
+    if h <= 0:
+        raise ValueError("Step size h must be positive.")
+
+    n_steps = int(np.ceil((x1 - x0) / h))
+    n_steps = max(n_steps, 1)
+    h_actual = (x1 - x0) / n_steps
+
+    x = np.linspace(x0, x1, n_steps + 1)
+    y = np.zeros(n_steps + 1, dtype=float)
+    y[0] = y0
+
+    for i in range(n_steps):
+        y[i + 1] = y[i] + h_actual * f_riccati(x[i], y[i], a)
+
+    return x, y
+
+
+def euler_backward(a: float, x1: float, x0: float, y1: float, h: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Explicit Euler integrated backward from x1 down to x0 (x1 > x0).
+
+    IMPORTANT:
+    This is NOT implicit Euler (no quadratic root selection).
+    It avoids the "right Euler becomes zeros" issue caused by root picking.
+
+    Update:
+        x_{k+1} = x_k - h
+        y_{k+1} = y_k - h * f(x_k, y_k)
+    """
+    if h <= 0:
+        raise ValueError("Step size h must be positive.")
+
+    n_steps = int(np.ceil((x1 - x0) / h))
+    n_steps = max(n_steps, 1)
+    h_actual = (x1 - x0) / n_steps  # positive
+
+    x = np.linspace(x1, x0, n_steps + 1)  # descending x
+    y = np.zeros(n_steps + 1, dtype=float)
+    y[0] = y1
+
+    for i in range(n_steps):
+        y[i + 1] = y[i] - h_actual * f_riccati(x[i], y[i], a)
+
+    return x, y
+
+
+# ===================== RK4 =====================
+
+def rk4_forward(a: float, x0: float, x1: float, y0: float, h: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Classic RK4 forward from x0 to x1."""
+    if h <= 0:
+        raise ValueError("Step size h must be positive.")
+
+    n_steps = int(np.ceil((x1 - x0) / h))
+    n_steps = max(n_steps, 1)
+    h_actual = (x1 - x0) / n_steps
+
+    x = np.linspace(x0, x1, n_steps + 1)
+    y = np.zeros(n_steps + 1, dtype=float)
+    y[0] = y0
+
+    for i in range(n_steps):
+        k1 = h_actual * f_riccati(x[i], y[i], a)
+        k2 = h_actual * f_riccati(x[i] + h_actual / 2, y[i] + k1 / 2, a)
+        k3 = h_actual * f_riccati(x[i] + h_actual / 2, y[i] + k2 / 2, a)
+        k4 = h_actual * f_riccati(x[i] + h_actual, y[i] + k3, a)
+        y[i + 1] = y[i] + (k1 + 2*k2 + 2*k3 + k4) / 6.0
+
+    return x, y
+
+
+def rk4_backward(a: float, x1: float, x0: float, y1: float, h: float) -> Tuple[np.ndarray, np.ndarray]:
+    """RK4 backward from x1 down to x0 using negative step."""
+    if h <= 0:
+        raise ValueError("Step size h must be positive.")
+
+    n_steps = int(np.ceil((x1 - x0) / h))
+    n_steps = max(n_steps, 1)
+    h_actual = (x1 - x0) / n_steps
+
+    x = np.linspace(x1, x0, n_steps + 1)  # descending
+    y = np.zeros(n_steps + 1, dtype=float)
+    y[0] = y1
+
+    for i in range(n_steps):
+        k1 = -h_actual * f_riccati(x[i], y[i], a)
+        k2 = -h_actual * f_riccati(x[i] - h_actual / 2, y[i] + k1 / 2, a)
+        k3 = -h_actual * f_riccati(x[i] - h_actual / 2, y[i] + k2 / 2, a)
+        k4 = -h_actual * f_riccati(x[i] - h_actual, y[i] + k3, a)
+        y[i + 1] = y[i] + (k1 + 2*k2 + 2*k3 + k4) / 6.0
+
+    return x, y
+
+
+# ===================== RK45 (adaptive Fehlberg) =====================
+
+def rk45_adaptive(a: float, x0: float, x1: float, y0: float, tol: float = 1e-6) -> Tuple[np.ndarray, np.ndarray]:
+    """RK45 forward adaptive step control."""
+    if tol <= 0:
+        raise ValueError("tol must be positive.")
+    if x1 <= x0:
+        return np.array([x0], dtype=float), np.array([y0], dtype=float)
+
+    c = np.array([0, 1/4, 3/8, 12/13, 1, 1/2], dtype=float)
+    a_coeff = np.array([
+        [0, 0, 0, 0, 0],
+        [1/4, 0, 0, 0, 0],
+        [3/32, 9/32, 0, 0, 0],
+        [1932/2197, -7200/2197, 7296/2197, 0, 0],
+        [439/216, -8, 3680/513, -845/4104, 0],
+        [-8/27, 2, -3544/2565, 1859/4104, -11/40]
+    ], dtype=float)
+
+    b4 = np.array([25/216, 0, 1408/2565, 2197/4104, -1/5, 0], dtype=float)
+    b5 = np.array([16/135, 0, 6656/12825, 28561/56430, -9/50, 2/55], dtype=float)
+
+    x_list = [x0]
+    y_list = [y0]
+    x_cur = x0
+    y_cur = y0
+
+    span = x1 - x0
+    h = span / 150.0
+    h_min = 1e-12
+    h_max = span / 8.0
+
+    while x_cur < x1:
+        if x_cur + h > x1:
+            h = x1 - x_cur
+
+        k = np.zeros(6, dtype=float)
+        for i in range(6):
+            y_stage = y_cur
+            for j in range(i):
+                y_stage += a_coeff[i, j] * k[j]
+            k[i] = h * f_riccati(x_cur + c[i] * h, y_stage, a)
+
+        y4 = y_cur + np.sum(b4 * k)
+        y5 = y_cur + np.sum(b5 * k)
+        err = abs(y5 - y4)
+
+        if err < tol or h <= h_min:
+            x_cur += h
+            y_cur = y5
+            x_list.append(x_cur)
+            y_list.append(y_cur)
+
+            if err > 0:
+                h = min(h_max, 0.9 * h * (tol / err) ** 0.2)
+            else:
+                h = min(h_max, 1.5 * h)
+        else:
+            h = max(h_min, 0.9 * h * (tol / err) ** 0.25)
+
+    return np.array(x_list, dtype=float), np.array(y_list, dtype=float)
+
+
+def rk45_backward(a: float, x1: float, x0: float, y1: float, tol: float = 1e-6) -> Tuple[np.ndarray, np.ndarray]:
+    """RK45 backward adaptive integration (h negative internally)."""
+    if tol <= 0:
+        raise ValueError("tol must be positive.")
+    if x1 <= x0:
+        return np.array([x1], dtype=float), np.array([y1], dtype=float)
+
+    c = np.array([0, 1/4, 3/8, 12/13, 1, 1/2], dtype=float)
+    a_coeff = np.array([
+        [0, 0, 0, 0, 0],
+        [1/4, 0, 0, 0, 0],
+        [3/32, 9/32, 0, 0, 0],
+        [1932/2197, -7200/2197, 7296/2197, 0, 0],
+        [439/216, -8, 3680/513, -845/4104, 0],
+        [-8/27, 2, -3544/2565, 1859/4104, -11/40]
+    ], dtype=float)
+
+    b4 = np.array([25/216, 0, 1408/2565, 2197/4104, -1/5, 0], dtype=float)
+    b5 = np.array([16/135, 0, 6656/12825, 28561/56430, -9/50, 2/55], dtype=float)
+
+    x_list = [x1]
+    y_list = [y1]
+    x_cur = x1
+    y_cur = y1
+
+    span = x1 - x0
+    h = -span / 150.0
+    h_min = 1e-12
+    h_max = span / 8.0
+
+    while x_cur > x0:
+        if x_cur + h < x0:
+            h = x0 - x_cur  # negative
+
+        k = np.zeros(6, dtype=float)
+        for i in range(6):
+            y_stage = y_cur
+            for j in range(i):
+                y_stage += a_coeff[i, j] * k[j]
+            k[i] = h * f_riccati(x_cur + c[i] * h, y_stage, a)
+
+        y4 = y_cur + np.sum(b4 * k)
+        y5 = y_cur + np.sum(b5 * k)
+        err = abs(y5 - y4)
+
+        if err < tol or abs(h) <= h_min:
+            x_cur += h
+            y_cur = y5
+            x_list.append(x_cur)
+            y_list.append(y_cur)
+
+            if err > 0:
+                h_new = 0.9 * h * (tol / err) ** 0.2
+                h = max(-h_max, min(-h_min, h_new))
+            else:
+                h = max(-h_max, min(-h_min, 1.5 * h))
+        else:
+            h_new = 0.9 * h * (tol / err) ** 0.25
+            h = max(-h_max, min(-h_min, h_new))
+
+    return np.array(x_list, dtype=float), np.array(y_list, dtype=float)
+
+
+# ===================== High-level solvers =====================
+
+def solve_branch(
+    a: float,
+    method: str,
+    branch: str = "left",
+    h: float = 0.05,
+    tol: float = 1e-6,
+    left_frac: float = DEFAULT_LEFT_FRAC,
+    right_frac: float = DEFAULT_RIGHT_FRAC,
+    x_domain_max: float = DEFAULT_X_DOMAIN_MAX,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Solve one branch.
+
+    left:  x in [0, left_frac*pi/2], y(0)=0 forward
+    right: x in [right_frac*pi/2, x_domain_max], y(x_domain_max)=0 backward then sorted ascending
+    """
+    if abs(a) < 1e-15:
+        raise ValueError("Parameter a must be nonzero.")
+
+    method = method.lower().strip()
+    branch = branch.lower().strip()
+
+    x_left_end = left_frac * math.pi / 2.0
+    x_right_start = right_frac * math.pi / 2.0
+
+    if x_right_start >= x_domain_max:
+        raise ValueError("right branch start >= x_domain_max. Adjust right_frac/x_domain_max.")
+
+    if branch == "left":
+        x0, x1, y0 = 0.0, x_left_end, 0.0
+        if method == "euler":
+            return euler_forward(a, x0, x1, y0, h)
+        if method == "rk4":
+            return rk4_forward(a, x0, x1, y0, h)
+        if method == "rk45":
+            return rk45_adaptive(a, x0, x1, y0, tol)
+        raise ValueError("Unknown method: use 'euler', 'rk4', or 'rk45'.")
+
+    if branch == "right":
+        x1, x0, y1 = x_domain_max, x_right_start, 0.0
+        if method == "euler":
+            x, y = euler_backward(a, x1, x0, y1, h)
+        elif method == "rk4":
+            x, y = rk4_backward(a, x1, x0, y1, h)
+        elif method == "rk45":
+            x, y = rk45_backward(a, x1, x0, y1, tol)
+        else:
+            raise ValueError("Unknown method: use 'euler', 'rk4', or 'rk45'.")
+
+        idx = np.argsort(x)
+        return x[idx], y[idx]
+
+    raise ValueError("branch must be 'left' or 'right'.")
+
+
+def solve_combined(
+    a: float,
+    method: str,
+    h: float = 0.05,
+    tol: float = 1e-6,
+    left_frac: float = DEFAULT_LEFT_FRAC,
+    right_frac: float = DEFAULT_RIGHT_FRAC,
+    x_domain_max: float = DEFAULT_X_DOMAIN_MAX,
+    gap_nan: bool = True,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Combine left+right into one curve with a NaN gap (for clean plotting).
+    """
+    xL, yL = solve_branch(a, method, "left", h=h, tol=tol,
+                         left_frac=left_frac, right_frac=right_frac, x_domain_max=x_domain_max)
+    xR, yR = solve_branch(a, method, "right", h=h, tol=tol,
+                         left_frac=left_frac, right_frac=right_frac, x_domain_max=x_domain_max)
+
+    if gap_nan:
+        x = np.concatenate([xL, np.array([np.nan]), xR])
+        y = np.concatenate([yL, np.array([np.nan]), yR])
+    else:
+        x = np.concatenate([xL, xR])
+        y = np.concatenate([yL, yR])
+
+    return x, y
+
+
+def exact_combined(
+    a: float,
+    left_frac: float = DEFAULT_LEFT_FRAC,
+    right_frac: float = DEFAULT_RIGHT_FRAC,
+    x_domain_max: float = DEFAULT_X_DOMAIN_MAX,
+    n: int = 1200,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Exact solution over combined domain with NaN gap.
+    """
+    x_left_end = left_frac * math.pi / 2.0
+    x_right_start = right_frac * math.pi / 2.0
+
+    nL = max(300, n // 2)
+    nR = max(300, n // 2)
+
+    xL = np.linspace(0.0, x_left_end, nL)
+    xR = np.linspace(x_right_start, x_domain_max, nR)
+
+    yL = y_exact(xL, a)
+    yR = y_exact(xR, a)
+
+    x = np.concatenate([xL, np.array([np.nan]), xR])
+    y = np.concatenate([yL, np.array([np.nan]), yR])
+    return x, y
