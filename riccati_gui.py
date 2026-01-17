@@ -1,5 +1,5 @@
 """
-Riccati BVP Explorer — Modern Streamlit GUI with Plotly
+Riccati BVP Explorer 
 ✅ Interactive zoomable Plotly graphs
 ✅ Fully controllable parameters
 ✅ LaTeX equation rendering
@@ -238,7 +238,7 @@ def plot_graph(x_numerical, y_numerical, x_exact=None, y_exact=None,
         xaxis_title="x",
         yaxis_title="y",
         xaxis=dict(range=[0, x_domain_max], gridcolor=grid_color, showgrid=True, gridwidth=1),
-        yaxis=dict(gridcolor=grid_color, showgrid=True, gridwidth=1),
+        yaxis=dict(range=[-15, 15], gridcolor=grid_color, showgrid=True, gridwidth=1),  # Fixed scale
         template=plotly_template,
         hovermode='x unified',
         legend=dict(bgcolor=card_bg, bordercolor=border_color, borderwidth=1),
@@ -300,7 +300,7 @@ def main():
     # Fixed header at the top (Facebook-style)
     st.markdown('<div class="fixed-header">', unsafe_allow_html=True)
     st.markdown('<h1 class="main-title">⚡ RICCATI BVP EXPLORER</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-title">Modern Numerical Methods Suite</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-title">By: Bader Muneer          Email:Bdr0222060@ju.edu.jo          Instructor: Prof. Zaer Abu Hammour          Email:Zaer@ju.edu.jo        (2026)</p>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
     # Calculate domain boundaries
@@ -695,7 +695,7 @@ def main():
                                       showgrid=True, row=1, col=2)
             fig_solutions.update_xaxes(title_text="x", range=[0, x_domain_max], gridcolor=grid_color, 
                                       showgrid=True, row=1, col=3)
-            fig_solutions.update_yaxes(title_text="y", gridcolor=grid_color, showgrid=True)
+            fig_solutions.update_yaxes(title_text="y", range=[-15, 15], gridcolor=grid_color, showgrid=True)  # Fixed scale
             fig_solutions.update_layout(
                 height=600,
                 template=plotly_template,
@@ -714,7 +714,6 @@ def main():
             maxr_4 = 0.0
             maxr_5 = 0.0
             
-            color_idx = 0
             for method_key, method_name in [("euler", "Euler"), ("rk4", "RK4"), ("rk45", "RK45")]:
                 x, y = results[method_key]
                 m = np.isfinite(x) & np.isfinite(y)
@@ -723,7 +722,8 @@ def main():
                     yf = y[m]
                     ye = y_exact(xf, a2)
                     r = np.abs(yf - ye) / (np.abs(ye) + 1e-12)
-                    color = COLOR_PALETTES[method_key][color_idx % len(COLOR_PALETTES[method_key])]
+                    # Use first color from each method's palette for consistency
+                    color = COLOR_PALETTES[method_key][0]
                     fig_err.add_trace(go.Scatter(
                         x=xf, y=r,
                         mode='lines',
@@ -737,7 +737,6 @@ def main():
                         maxr_4 = max_r
                     else:
                         maxr_5 = max_r
-                color_idx += 1
             
             fig_err.add_vline(x=math.pi/2, line_dash="dash", line_color=COLOR_PALETTES["sing"],
                              line_width=2, annotation_text="singularity π/2")
@@ -745,10 +744,15 @@ def main():
             fig_err.update_layout(
                 title=dict(text="Relative Errors Comparison", font=dict(size=16, color=accent_color)),
                 xaxis_title="x",
-                yaxis_title="Relative Error r(x)",
+                yaxis_title="Relative Error |yₙᵤₘ - yₑₓₐcₜ| / |yₑₓₐcₜ|",
                 yaxis_type="log",
                 xaxis=dict(range=[0, x_domain_max], gridcolor=grid_color, showgrid=True),
-                yaxis=dict(gridcolor=grid_color, showgrid=True),
+                yaxis=dict(
+                    autorange=True,  # Let plotly auto-scale for log scale
+                    gridcolor=grid_color,
+                    showgrid=True,
+                    tickformat=".0e"  # Scientific notation for log scale
+                ),
                 template=plotly_template,
                 height=600,
                 plot_bgcolor=axes_bg,
