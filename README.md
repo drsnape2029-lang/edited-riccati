@@ -1,1 +1,1 @@
-https://numriccati.streamlit.app/
+https://riccatiexplorer.streamlit.app/
